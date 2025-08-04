@@ -1,0 +1,14 @@
+myenv/
+__pycache__/
+dbimage/
+
+Pocketbase/
+models/
+*.pt
+
+outputs/
+rtest.py
+log.txt
+log.txt
+
+uploads/

@@ -65,10 +65,7 @@ class CCtvMonitor:
         self._shutdown_event = threading.Event()
 
         # regions
-        # self.regions={}
-        # self.region_masks = {}
         self.background_subtractor = cv2.createBackgroundSubtractorMOG2()
-        self.model = YOLO('models/yolov8n.pt')
         self.k = []
 
     def load_regions(self, soruce, file_path='regions.json',):
@@ -84,7 +81,6 @@ class CCtvMonitor:
                     else:
                         continue
 
-            # return ip.get('regions', {})
         except Exception as e:
             print(f"Error loading regions: {e}")
             return {}
@@ -563,7 +559,6 @@ class CCtvMonitor:
             self.k = current_regions
             self.onDisplay(self.k, processed_frame)
             display_frame = self.draw_regions_on_frame(processed_frame,regions)
-            # display_frame = cv2.resize(display_frame, (640, 640))
             try:
                 fps = 1.0 / (time.time() - start_time)
             except ZeroDivisionError:
@@ -697,6 +692,7 @@ class CCtvMonitor:
                     # Resize back to original dimensions
                     frame = cv2.resize(
                         frame, (original_width, original_height))
+
 
                 # Encode and yield the frame
                 try:

@@ -43,18 +43,19 @@ class KnownPersonFields(BaseModel):
     socialnumber: str
 
 # Global CCTV monitor instance
-cctv_monitor = CCtvMonitor()
 
 
+cctv_monitor=None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
-    # global cctv_monitor
+    global cctv_monitor
+    cctv_monitor=CCtvMonitor()
     
     # Startup
     logging.info("Starting CCTV Monitor application...")
     try:
-
+        
         # Start the recognition worker
         # cctv_monitor.start()
         logging.info("CCTV Monitor initialized successfully")
@@ -424,14 +425,24 @@ async def querySearch(fileLocation:str):
     return ids
 
 
-app.mount("/web/app", StaticFiles(directory="build/web",
-          html=True), name="flutter")
+
+def getPort():
+    uri='http://127.0.0.1:8091/api/collections/setting/records'
+    response=requests.get(uri)
+    data=response.json().get('items')[0]
+    return int(data['port'])
+# app.mount("/web/app", StaticFiles(directory="build/web",
+#           html=True), name="flutter")
 if __name__ == "__main__":
+    
+    # cctv_monitor =CCtvMonitor()
     host = '0.0.0.0'
-    port =int(cctv_monitor.loadConfig()[3])
+    # port =int(cctv_monitor.loadConfig()[3])
+    port=getPort()
+    
     
     logging.info(f"Starting server on {host}:{port}")
-    webbrowser.open(f'http://127.0.0.1:{port}/web/app')
+    # webbrowser.open(f'http://127.0.0.1:{port}/web/app')
     try:
         uvicorn.run(
             "app:app", 

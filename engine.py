@@ -45,7 +45,7 @@ cv2.setNumThreads(multiprocessing.cpu_count())
 
 class CCtvMonitor:
     def __init__(self):
-        self.start()
+        # self.start()
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.frps = 5 if self.device == 'cuda' else 25
         self.MODEL_PATH = os.getenv("MODEL_PATH", "models/yolov8n.pt")
@@ -53,7 +53,6 @@ class CCtvMonitor:
         self.FRAME_DELAY = 1.0 / self.TARGET_FPS
         self.RETRY_LIMIT = 5
         self.RETRY_DELAY = 3
-        # self.start()
         self.score,self.padding,self.quality=self.loadConfig()[0:3]
 
         # Initialize models
@@ -331,11 +330,12 @@ class CCtvMonitor:
         return results
  
  
- 
+
     def _load_models(self):
+
         """Load YOLO and face recognition models"""
         try:
-            logging.info("Loading models...")
+            logging.info(f"Loading models...")
 
             # Load face handler
             self.face_handler = FaceAnalysis(#TODO:Change This
@@ -807,7 +807,7 @@ class CCtvMonitor:
         except Exception as e:
             logging.error(f"Error in generate_frames: {e}")
         finally:
-            self.release_resources(fresh, cap)
+            await self.release_resources(fresh, cap,role)
 
 
 def image_searcher(file_path):

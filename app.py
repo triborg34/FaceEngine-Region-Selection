@@ -1,21 +1,24 @@
-import io
+
 import json
 import logging
 import os
 import shutil
 import socket
+import threading
 import time
 import webbrowser
 import base64
 from contextlib import asynccontextmanager
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from fastapi import FastAPI, File, Query, Response, Request, UploadFile, HTTPException
+from fastapi import FastAPI, File, Query, Request, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+import requests
 import uvicorn
-
+import multiprocessing
 # Import your improved CCtvMonitor class
-from engine import CCtvMonitor, image_searcher, image_crop
+from engine import CCtvMonitor, image_crop
 from onvifmaneger import get_rtsp_url
 from savatoDb import reciveFromUi
 
@@ -40,19 +43,20 @@ class KnownPersonFields(BaseModel):
     socialnumber: str
 
 # Global CCTV monitor instance
-cctv_monitor = None
+cctv_monitor = CCtvMonitor()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
-    global cctv_monitor
+    # global cctv_monitor
     
     # Startup
     logging.info("Starting CCTV Monitor application...")
     try:
-        cctv_monitor = CCtvMonitor()
+
         # Start the recognition worker
-        cctv_monitor.start()
+        # cctv_monitor.start()
         logging.info("CCTV Monitor initialized successfully")
     except Exception as e:
         logging.error(f"Failed to initialize CCTV Monitor: {e}")
@@ -63,7 +67,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logging.info("Shutting down CCTV Monitor application...")
     if cctv_monitor:
-        cctv_monitor.graceful_shutdown()
+        await cctv_monitor.graceful_shutdown()
     logging.info("Application shutdown complete")
 
 # Create FastAPI app with lifespan manager
@@ -86,11 +90,12 @@ async def health_check():
     return {
         "status": "healthy",
         "cctv_monitor_active": cctv_monitor is not None,
-        "timestamp": time.time()
+        "timestamp": time.time(),
+        "multiprocessing":multiprocessing.cpu_count()
     }
 
 @app.get("/{camera_id}")
-async def video_feed(camera_id: str, request: Request, source: str = Query(...)):
+async def video_feed(camera_id: str, request: Request, source: str = Query(...), role :bool = Query()):
     """Stream video from a specific camera"""
     if not cctv_monitor:
         raise HTTPException(status_code=503, detail="CCTV Monitor not initialized")
@@ -110,9 +115,25 @@ async def video_feed(camera_id: str, request: Request, source: str = Query(...))
         camera_idx = int(camera_id[2:])
         
         logging.info(f"Starting video stream for camera {camera_idx} with source: {source}")
+        if not role:
+            
+            if threading.Thread(
+                target=cctv_monitor.recognition_worker,
+                daemon=True
+            ).is_alive():
+                pass
+            else:
+                threading.Thread(
+                target=cctv_monitor.recognition_worker,
+                daemon=True
+            ).start()
+
+            
+                
+        
 
         return StreamingResponse(
-            cctv_monitor.generate_frames(camera_idx, source, request),
+            cctv_monitor.generate_frames(camera_idx, source, request,role),
             media_type="multipart/x-mixed-replace; boundary=frame",
             headers={
                 "Cache-Control": "no-store",
@@ -134,7 +155,7 @@ def discover_onvif_stream():
     ip_base = "192.168.1"
 
     def event_generator():
-        yield f"data: {json.dumps({'status': 'scanning', 'message': 'Starting network scan...'})}\n\n"
+        # yield f"data: {json.dumps({'status': 'scanning', 'message': 'Starting network scan...'})}\n\n"
         
         found_devices = 0
         for i in range(1, 255):
@@ -152,13 +173,13 @@ def discover_onvif_stream():
                 continue
             
             # Send progress updates
-            if i % 50 == 0:
-                progress = (i / 254) * 100
-                yield f"data: {json.dumps({'status': 'progress', 'progress': progress, 'found': found_devices})}\n\n"
+            # if i % 50 == 0:
+            #     progress = (i / 254) * 100
+            #     yield f"data: {json.dumps({'status': 'progress', 'progress': progress, 'found': found_devices})}\n\n"
             
             time.sleep(0.1)
         
-        yield f"data: {json.dumps({'status': 'complete', 'total_found': found_devices})}\n\n"
+        # yield f"data: {json.dumps({'status': 'complete', 'total_found': found_devices})}\n\n"
     
     return event_generator()
 
@@ -195,7 +216,8 @@ async def get_camera_rtsp(request: RtspFields):
         raise HTTPException(status_code=500, detail=f"Failed to get RTSP URL: {str(e)}")
 
 @app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(isSearch:bool,file: UploadFile = File(...)):
+    
     """Upload and process image file"""
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
@@ -225,7 +247,12 @@ async def upload_file(file: UploadFile = File(...)):
         logging.info(f"File uploaded: {file_location}")
         
         # Process image to crop face
-        img_encoded = image_crop(file_location)
+
+            
+        img_encoded = image_crop(file_location,isSearch)
+        
+        
+        
         
         if img_encoded is None:
             # Clean up file if processing failed
@@ -252,6 +279,7 @@ async def upload_file(file: UploadFile = File(...)):
 
 @app.post("/insertKToDp")
 async def insert_known_person(data: KnownPersonFields):
+    print("HEREEE")
     """Insert known person data to database"""
     try:
         # Validate required fields
@@ -325,6 +353,9 @@ async def delete_known_person(person_name: str):
     # This would need to be implemented in your database module
     raise HTTPException(status_code=501, detail="Delete functionality not implemented")
 
+
+
+
 @app.get("/system/status")
 async def get_system_status():
     """Get system status information"""
@@ -371,12 +402,36 @@ async def get_system_status():
         logging.error(f"Error getting system status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/util/imageSearch")
+async def querySearch(fileLocation:str):
+    
+    print(fileLocation)
+    cctv_monitor.precompute_embeddings(
+                cctv_monitor.load_image_searcher_model(), cctv_monitor.FOLDER_PATH)
+    embeddings, filenames = cctv_monitor.load_embeddings()
+    query_path=fileLocation.replace('\\','/')
+    query_embedding = cctv_monitor.get_embedding( query_path)
+    results = cctv_monitor.find_similar_images(query_embedding, embeddings, filenames, top_k=10)
+    response=requests.get('http://127.0.0.1:8091/api/collections/collection/records')
+    res=response.json()['items']
+    ids=[]
+    for fname,score in results:
+        for json in res:
+            if fname==json['filename']:
+                ids.append(json['id'])
+        
+    logging.info(ids)
+    return ids
+
+
+app.mount("/web/app", StaticFiles(directory="build/web",
+          html=True), name="flutter")
 if __name__ == "__main__":
     host = '0.0.0.0'
-    port = 8000
+    port =int(cctv_monitor.loadConfig()[3])
     
     logging.info(f"Starting server on {host}:{port}")
-    
+    webbrowser.open(f'http://127.0.0.1:{port}/web/app')
     try:
         uvicorn.run(
             "app:app", 

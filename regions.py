@@ -1,3 +1,4 @@
+from urllib.parse import urlparse
 import cv2
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
@@ -25,6 +26,7 @@ class CCTVRegionSelector:
         # Rectangle drawing variables
         self.rect_start = None
         self.temp_rect = None
+        self.tempurl=None
         
         # Colors for regions
         self.colors = ['red', 'blue', 'green', 'yellow', 'purple', 'orange', 'cyan', 'magenta']
@@ -170,6 +172,7 @@ Instructions:
         """Capture from IP camera with user-provided URL"""
         url = simpledialog.askstring("IP Camera URL", 
                                     "Enter IP camera URL (e.g., http://192.168.1.100:8080/video):")
+        self.tempurl=urlparse(url).hostname
         if not url:
             return
             
@@ -180,7 +183,7 @@ Instructions:
                 return
             
             ret, frame = cap.read()
-            frame=cv2.resize(frame,(640,640))
+            frame=cv2.resize(frame,(1000,1000))
             cap.release()
             
             if ret:
@@ -556,7 +559,9 @@ Instructions:
                     'image_size': self.image.size if self.image else None,
                     'created': datetime.now().isoformat(),
                     'total_regions': len(self.regions),
-                    'version': '2.0'
+                    'version': '2.0',
+                    'ip':self.tempurl
+                    
                 }
                 
                 with open(file_path, 'w') as f:

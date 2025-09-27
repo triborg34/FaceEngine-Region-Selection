@@ -53,7 +53,7 @@ class CCtvMonitor:
         self.FRAME_DELAY = 1.0 / self.TARGET_FPS
         self.RETRY_LIMIT = 5
         self.RETRY_DELAY = 3
-        self.score,self.padding,self.quality=self.loadConfig()[0:3]
+        self.score,self.padding,self.quality,self.hscore,self.simscore,self.port=self.loadConfig()
 
         # Initialize models
         self.model = None
@@ -192,7 +192,7 @@ class CCtvMonitor:
             masks[region_name] = mask
         return masks
 
-    def onDisplay(self, region, frame):
+    def onDisplay(self, region, frame,role):
         """Display region names on frame"""
         if not region:  # More pythonic than len(region) == 0
             return
@@ -210,7 +210,7 @@ class CCtvMonitor:
 
         # print(f"Active regions: {[r.get('name', 'Unknown') for r in region]}")
         # Handle relay operations in background
-        if region:  # Only trigger if there are active regions
+        if region and role =="approve":  # Only trigger if there are active regions
             threading.Thread(
                 target=self.handle_relay_operations,
                 args=[region.copy()],  # Pass a copy to avoid race conditions
@@ -223,7 +223,7 @@ class CCtvMonitor:
             # Your IP relay operations here
             for region in regions:
                 region_name = region.get('name', 'Unknown')
-                # print(f"Background: Processing relay for {region_name}")
+                print(f"Background: Processing relay for {region_name}")
 
                 # Example relay operations:
                 # self.open_ip_relay(region_name)
@@ -275,8 +275,7 @@ class CCtvMonitor:
         uri='http://127.0.0.1:8091/api/collections/setting/records'
         response=requests.get(uri)
         data=response.json().get('items')[0]
-        
-        return float(data['score']),data['padding'],int(data['quality']),data['port']
+        return float(data['score']),data['padding'],int(data['quality']),float(data['hscore']),float(data['simscore']),data['port']
     
     def load_image_searcher_model(self):
         model = resnet50(weights=None)  # don't load default
@@ -325,9 +324,11 @@ class CCtvMonitor:
  
     def find_similar_images(self, query_embedding, embeddings, filenames, top_k=10):
         sims = cosine_similarity([query_embedding], embeddings)[0]
-        sorted_indices = np.argsort(sims)[::-1]
-        results = [(filenames[i], sims[i]) for i in sorted_indices[:top_k]]
-        return results
+        if sims[0]>0.7:
+            sorted_indices = np.argsort(sims)[::-1]
+            results = [(filenames[i], sims[i]) for i in sorted_indices[:top_k]]
+            return results
+        return []
  
  
 
@@ -338,8 +339,8 @@ class CCtvMonitor:
             logging.info(f"Loading models...")
 
             # Load face handler
-            self.face_handler = FaceAnalysis(#TODO:Change This
-                'buffalo_l',
+            self.face_handler = FaceAnalysis(
+                'antelopev2',
                 providers=['CUDAExecutionProvider', 'CPUExecutionProvider'],
                 root='.'
             )
@@ -381,7 +382,7 @@ class CCtvMonitor:
             # Signal recognition worker to stop
             if not role:
                 self.recognition_queue.put(None)
-                await self.stop_background_processing()
+
         except Exception as e:
             logging.error(f"Error releasing camera resources: {e}")
 
@@ -432,9 +433,10 @@ class CCtvMonitor:
         best_age = fage
         best_gender = fgender
         best_role = ''
-
+        
         try:
             for name, person_data in self.known_names.items():
+                
                 age = person_data['age']
                 gender = person_data['gender']
                 role = person_data['role']
@@ -442,17 +444,23 @@ class CCtvMonitor:
 
                 for known_emb in embeds:
                     sim = cosine_similarity([embedding], [known_emb])[0][0]
-                    if sim > best_score:
+
+                    if sim >= self.simscore:
                         best_score = sim
                         best_match = name
                         best_age = age
                         best_gender = gender
                         best_role = role
+                    #     return best_match, best_score, best_gender, best_age, best_role
+                    # else:
+                    #     return "unknown", best_score, fgender, fage, best_role
 
             # Threshold for recognition
-            if best_score >= 0.6:
+            if best_match != 'unknown':
+         
                 return best_match, best_score, best_gender, best_age, best_role
             else:
+             
                 return "unknown", best_score, fgender, fage, best_role
 
         except Exception as e:
@@ -488,6 +496,7 @@ class CCtvMonitor:
                     name, sim, gender, age, role = self.recognize_face(
                         face.embedding, gender, age
                     )
+          
                     x1, y1, x2, y2 = map(int, face.bbox)
 
                     self.update_face_info(
@@ -520,8 +529,8 @@ class CCtvMonitor:
 
             except queue.Empty:
                 continue  # Timeout, check shutdown event
-            except Exception as e:
-                logging.error(f"Error in recognition worker: {e}")
+            # except Exception as e:
+            #     logging.error(f"Error in recognition worker: {e}")
 
         logging.info("Recognition worker stopped.")
 
@@ -548,10 +557,13 @@ class CCtvMonitor:
             results = self.model.track(
                 masked_frame,
                 classes=[0],  # Person class
+                
                 tracker="bytetrack.yaml",
                 persist=True,
                 device=self.device,
-                conf=0.7 #TODO:GET CONF IN SETTING
+                conf=self.hscore #TODO:GET CONF IN SETTING
+                ,
+                half=True
             )
 
             if results and len(results[0].boxes) > 0:
@@ -598,6 +610,7 @@ class CCtvMonitor:
                     # Create label
                     label = f"{info['name']} ID:{track_id}"
                     face_bbox = info['bbox']
+       
 
                     # try:
                     #     score = int(info['score'] *
@@ -608,7 +621,8 @@ class CCtvMonitor:
                     # name = info['name']
                     # gender = info['gender']
                     # age = info['age']
-                    # role = info['role']
+                    role = info['role']
+                  
 
                     # Draw face bounding box if available
                     if face_bbox:
@@ -652,7 +666,7 @@ class CCtvMonitor:
 
             # Calculate and display FPS
             self.k = current_regions
-            self.onDisplay(self.k, processed_frame)
+            self.onDisplay(self.k, processed_frame,role)
             display_frame = self.draw_regions_on_frame(processed_frame,regions)
             try:
                 fps = 1.0 / (time.time() - start_time)
@@ -701,12 +715,12 @@ class CCtvMonitor:
         if regions ==None:
             regions={ "r2": {
       "id": "1345",
-      "name": "r1",
+      "name": "r2",
       "description": "",
       "points": [
         [0.0, 0.0],          # top-left
   [999.0, 0.0],        #top-right
-  [639.0, 999.0],      #bottom-right
+  [999.0, 999.0],      #bottom-right
   [0.0, 999.0],       # bottom-left
   [0.0, 0.0] 
       ],

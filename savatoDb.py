@@ -188,7 +188,6 @@ def load_embeddings_from_db():
             gender = item.get('gender')
             role = item.get('role')
 
-            print(f"{age=},{gender=}")
 
             if embedding:
                 embedding = embedding[:len(embedding) - (len(embedding) % 512)]

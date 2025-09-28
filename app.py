@@ -45,12 +45,12 @@ class KnownPersonFields(BaseModel):
 # Global CCTV monitor instance
 
 
-cctv_monitor=None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
     global cctv_monitor
-    cctv_monitor=CCtvMonitor()
+    cctv_monitor = CCtvMonitor()
     
     # Startup
     logging.info("Starting CCTV Monitor application...")
@@ -430,19 +430,26 @@ async def querySearch(fileLocation:str):
 
 
 
-def getPort():
-    uri='http://127.0.0.1:8091/api/collections/setting/records'
-    response=requests.get(uri)
-    data=response.json().get('items')[0]
-    return int(data['port'])
 # app.mount("/web/app", StaticFiles(directory="build/web",
 #           html=True), name="flutter")
+def updatePort():
+    port=cctv_monitor.loadConfig()[3]
+    with open('hostname.json','w') as file:
+        json.dump({'port':port}, file, indent=4)
+    return 0
+    
+
+def readPort() :
+    with open('hostname.json','r') as file:
+        data=json.load(file)
+        return data['port']
 if __name__ == "__main__":
     
     # cctv_monitor =CCtvMonitor()
     host = '0.0.0.0'
     # port =int(cctv_monitor.loadConfig()[3])
-    port=getPort()
+    port=int(readPort())
+    #TODO:ADD HOSTNAME AND PORT AND SEE IF ANY THING CHANGE IN THAT CODE
     
     
     logging.info(f"Starting server on {host}:{port}")

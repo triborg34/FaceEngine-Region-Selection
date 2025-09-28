@@ -290,7 +290,7 @@ def should_insert(name, track_id):
     return True
 
 
-def insertToDb(name, frame, croppedface, humancrop, score, track_id, gender, age, role, path,quality,regions):
+def insertToDb(name, frame, croppedface, humancrop, score, track_id, gender, age, role, path,quality,regions,isRelay:bool,isRegionMode:bool):
     global tempTime
     url = "http://127.0.0.1:8091/api/collections/collection/records"
     timeNow = datetime.datetime.now()
@@ -311,7 +311,8 @@ def insertToDb(name, frame, croppedface, humancrop, score, track_id, gender, age
 
         recent_names.append(RecentEntry(
             name=name, track_id=track_id, time=datetime.datetime.now()))
-        relay_ip,relay_region=regions['relay_ip'],regions['name']
+        if isRegionMode:
+            relay_ip,relay_region,relay_number=regions['relay_ip'],regions['name'],int(regions['relay_number'])
         
 
         with open(frame_loc, "rb") as file1, open(crop_loc, "rb") as file2,open(human_loc,'rb') as file3:
@@ -338,21 +339,21 @@ def insertToDb(name, frame, croppedface, humancrop, score, track_id, gender, age
         if response.status_code in [200, 201]:
 
             logging.info(response.json()['id'])
-            if role=='approve':
-              handle_relay_operations(relay_ip,23,'admin','admin',relay_region)
+            if role=='approve' and isRelay and isRegionMode:
+              handle_relay_operations(relay_ip,23,'admin','admin',relay_number,relay_region)
             
         else:
             logging.error("Error:", response.text)
 
 
-def handle_relay_operations( ip='192.168.1.200', port=23, username='admin', password='admin', region_name='default'):
+def handle_relay_operations( ip='192.168.1.200', port=23, username='admin', password='admin', relay_number=1,region_name='default'):
         """Handle IP relay operations - single execution"""
         try:
             print(f"Executing relay operation for {ip}")
             nrc = NrcDevice((ip, port, username, password))
             nrc.connect()
             if nrc.login():
-                nrc.relayContact(1, 300)
+                nrc.relayContact(relay_number, 300)
                 print(f"Relay operation completed for {ip}")
             nrc.disconnect()
         except Exception as e:

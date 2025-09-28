@@ -389,12 +389,14 @@ Instructions:
             region_id = dialog.result['id']
             description = dialog.result['description']
             relay_ip=dialog.result['relay_ip']
+            relay_number=dialog.result['relay_number']
         else:
             # User cancelled, restore default
             region_name = f"r{self.region_counter}"
             region_id = str(self.region_counter)
             description = ""
             relay_ip=str("192.168.1.200")
+            relay_number='1'
         
         # Draw the final shape
         if shape_type == "polygon":
@@ -424,6 +426,7 @@ Instructions:
             'name': region_name,
             'description': description,
             'relay_ip':relay_ip,
+            'relay_number':relay_number,
             'points': self.current_region.copy(),
             'shape_type': shape_type,
             'color': color,
@@ -645,7 +648,7 @@ Instructions:
 
 
 class RegionDialog:
-    def __init__(self, parent, default_name="", default_id="", default_description="",defuilt_ip=''):
+    def __init__(self, parent, default_name="", default_id="", default_description="",defuilt_ip='',defuilt_relay=''):
         self.result = None
         
         self.dialog = tk.Toplevel(parent)
@@ -675,6 +678,10 @@ class RegionDialog:
         self.relay_ip = tk.StringVar(value=defuilt_ip)
         ttk.Entry(main_frame, textvariable=self.relay_ip,
                   width=40).pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(main_frame, text="Relay Number:").pack(anchor=tk.W, pady=(0, 5))
+        self.relay_number = tk.StringVar(value=defuilt_ip)
+        ttk.Entry(main_frame, textvariable=self.relay_number,
+                  width=40).pack(fill=tk.X, pady=(0, 10))
         
         # Description field
         ttk.Label(main_frame, text="Description (optional):").pack(anchor=tk.W, pady=(0, 5))
@@ -702,6 +709,7 @@ class RegionDialog:
         region_id = self.id_var.get().strip()
         description = self.desc_text.get(1.0, tk.END).strip()
         relay_ip=self.relay_ip.get().strip()
+        relay_number=self.relay_number.get().strip()
         
         if not name:
             messagebox.showwarning("Invalid Input", "Region name cannot be empty")
@@ -715,7 +723,8 @@ class RegionDialog:
             'name': name,
             'id': region_id,
             'description': description,
-            'relay_ip':relay_ip
+            'relay_ip':relay_ip,
+            'relay_number':relay_number
         }
         self.dialog.destroy()
     

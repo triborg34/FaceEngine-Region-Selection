@@ -27,6 +27,7 @@ import torch.nn as nn
 from PIL import Image
 from torchvision.transforms import transforms
 import json
+from nrcpy import NrcDevice
 
 # --- Basic Setup ---
 logging.getLogger('torch').setLevel(logging.ERROR)
@@ -90,6 +91,7 @@ class CCtvMonitor:
         # regions
         self.background_subtractor = cv2.createBackgroundSubtractorMOG2()
         self.k = []
+        
 
     def load_regions(self, soruce, file_path='regions.json',):
         url = urlparse(soruce).hostname
@@ -192,7 +194,7 @@ class CCtvMonitor:
             masks[region_name] = mask
         return masks
 
-    def onDisplay(self, region, frame,role):
+    def onDisplay(self, region, frame):
         """Display region names on frame"""
         if not region:  # More pythonic than len(region) == 0
             return
@@ -207,60 +209,6 @@ class CCtvMonitor:
                 y_pos = y_offset + (i * line_height)
                 cv2.putText(frame, reg['name'], (10, y_pos),
                             cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (255, 255, 255))
-
-        # print(f"Active regions: {[r.get('name', 'Unknown') for r in region]}")
-        # Handle relay operations in background
-        if region and role =="approve":  # Only trigger if there are active regions
-            threading.Thread(
-                target=self.handle_relay_operations,
-                args=[region.copy()],  # Pass a copy to avoid race conditions
-                daemon=True
-            ).start()
-
-    def handle_relay_operations(self, regions):
-        """Handle IP relay operations in background thread"""
-        try:
-            # Your IP relay operations here
-            for region in regions:
-                region_name = region.get('name', 'Unknown')
-                print(f"Background: Processing relay for {region_name}")
-
-                # Example relay operations:
-                # self.open_ip_relay(region_name)
-                # time.sleep(0.1)  # Small delay between operations
-
-                # Add your actual relay control code here
-                # Example:
-                # if region_name == 'R1':
-                #     self.control_relay('192.168.1.100', 'open')
-                # elif region_name == 'R2':
-                #     self.control_relay('192.168.1.101', 'open')
-
-        except Exception as e:
-            print(f"Error in relay operations: {e}")
-# Additional helper method for actual relay control
-
-    def control_relay(self, ip_address, action, port=80, timeout=5):
-        """Control IP relay - implement your specific relay protocol"""
-        try:
-            import requests  # or whatever library you use for relay control
-
-            # Example for HTTP-based relay control
-            url = f"http://{ip_address}/relay/{action}"
-            response = requests.get(url, timeout=timeout)
-
-            if response.status_code == 200:
-                print(f"Successfully {action} relay at {ip_address}")
-                return True
-            else:
-                print(
-                    f"Failed to {action} relay at {ip_address}: {response.status_code}")
-                return False
-
-        except Exception as e:
-            print(f"Error controlling relay {ip_address}: {e}")
-            return False
-# Example usage with specific relay mapping
 
     def setup_relay_mapping(self):
         """Setup mapping between regions and relay IPs"""
@@ -330,8 +278,6 @@ class CCtvMonitor:
             return results
         return []
  
- 
-
     def _load_models(self):
 
         """Load YOLO and face recognition models"""
@@ -478,7 +424,7 @@ class CCtvMonitor:
                 if item is None:
                     break
 
-                frame,path,track_id, face_img = item
+                frame,path,track_id, face_img ,region_data= item
                 # Skip if recently updated (performance optimization)
                 with self.face_info_lock:
                     if (track_id in self.face_info and
@@ -504,33 +450,31 @@ class CCtvMonitor:
                             x1, y1, x2, y2)
                     )
                     self.embedding_cache[track_id] = face.embedding
+                    if det_score>self.score:
+                        height_f, width_f = face_img.shape[:2]
+                        padding = self.padding
+                        fx1_padded = max(x1 - padding, 0)
+                        fy1_padded = max(y1 - padding, 0)
+                        fx2_padded = min(x2 + padding, width_f)
+                        fy2_padded = min(y2 + padding, height_f)
+
+                        cropped_face = face_img[fy1_padded:fy2_padded,
+                                                        fx1_padded:fx2_padded]
+                        
+                        try:
+                            insertToDb(name,frame.copy(),cropped_face.copy(),face_img.copy(),det_score,track_id,gender,age,role,path,self.quality,region_data) #TODO
+                        except Exception as e:
+                                    logging.error(f"Error inserting to DB: {e}")
                 else:
                     self.update_face_info(
                         track_id, "Unknown", 0.0, 'None', 'None', '', None
                     )
-
-                if det_score>self.score:
-                    height_f, width_f = face_img.shape[:2]
-                    padding = self.padding
-                    fx1_padded = max(x1 - padding, 0)
-                    fy1_padded = max(y1 - padding, 0)
-                    fx2_padded = min(x2 + padding, width_f)
-                    fy2_padded = min(y2 + padding, height_f)
-
-                    cropped_face = face_img[fy1_padded:fy2_padded,
-                                                    fx1_padded:fx2_padded]
-                    
-                    try:
-                        insertToDb(name,frame.copy(),cropped_face.copy(),face_img.copy(),det_score,track_id,gender,age,role,path,self.quality) #TODO
-                    except Exception as e:
-                                logging.error(f"Error inserting to DB: {e}")
+            
                 
-                    
+                
 
             except queue.Empty:
                 continue  # Timeout, check shutdown event
-            # except Exception as e:
-            #     logging.error(f"Error in recognition worker: {e}")
 
         logging.info("Recognition worker stopped.")
 
@@ -575,6 +519,7 @@ class CCtvMonitor:
                         if region_data not in current_regions:
                             current_regions.append(region_data)
 
+                    
                     # Get tracking ID
                     if box.id is None:
                         continue
@@ -591,7 +536,7 @@ class CCtvMonitor:
 
                     # Queue for recognition every frps frames
                     # if counter % self.frps == 0:
-                    self.recognition_queue.put((processed_frame.copy(),path,track_id, human_crop))
+                    self.recognition_queue.put((processed_frame.copy(),path,track_id, human_crop,region_data))
 
                     # Get face info
                     with self.face_info_lock:
@@ -612,19 +557,11 @@ class CCtvMonitor:
                     face_bbox = info['bbox']
        
 
-                    # try:
-                    #     score = int(info['score'] *
-                    #                 100) if info['score'] else 0
-                    # except (TypeError, ValueError):
-                    #     score = 0
 
-                    # name = info['name']
-                    # gender = info['gender']
-                    # age = info['age']
                     role = info['role']
                   
 
-                    # Draw face bounding box if available
+    
                     if face_bbox:
                         fx1, fy1, fx2, fy2 = face_bbox
                         cv2.rectangle(
@@ -638,26 +575,7 @@ class CCtvMonitor:
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2
                         )
 
-                        # Crop face with padding
-                        # height_f, width_f = human_crop.shape[:2]
-                        # padding = 40
-                        # fx1_padded = max(fx1 - padding, 0)
-                        # fy1_padded = max(fy1 - padding, 0)
-                        # fx2_padded = min(fx2 + padding, width_f)
-                        # fy2_padded = min(fy2 + padding, height_f)
-
-                        # cropped_face = human_crop[fy1_padded:fy2_padded,
-                        #                           fx1_padded:fx2_padded]
-
-                        # Insert to database
-                        # try:
-                        #     await insertToDb(
-                        #         name, processed_frame, cropped_face, human_crop,
-                        #         score, track_id, gender, age, role, path
-                        #     )
-                        # except Exception as e:
-                        #     logging.error(f"Error inserting to DB: {e}")
-
+    
                     else:
                         cv2.putText(
                             processed_frame, label, (x1, y1 - 10),
@@ -666,7 +584,7 @@ class CCtvMonitor:
 
             # Calculate and display FPS
             self.k = current_regions
-            self.onDisplay(self.k, processed_frame,role)
+            self.onDisplay(self.k, processed_frame)
             display_frame = self.draw_regions_on_frame(processed_frame,regions)
             try:
                 fps = 1.0 / (time.time() - start_time)

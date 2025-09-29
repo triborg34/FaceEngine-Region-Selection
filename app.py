@@ -42,6 +42,12 @@ class KnownPersonFields(BaseModel):
     role: str
     socialnumber: str
 
+
+class RelayConfig(BaseModel):
+    ip:str
+    port:int
+    username:str
+    password:str
 # Global CCTV monitor instance
 
 
@@ -428,7 +434,21 @@ async def querySearch(fileLocation:str):
     logging.info(ids)
     return ids
 
+ncr=None
+@app.post('/utils/relayConnect')
+def connectTorelay(data:RelayConfig):
+    global ncr
+    from nrcpy import NrcDevice
+    ncr=NrcDevice((data.ip,data.port,data.username,data.password))
+    ncr.connect()
+    # ncr.relayContact(1,300)
+    return {'connection' : 'Sucsedd'}
 
+@app.get('/utils/relay1')
+def relay1():
+    if ncr.login():
+         ncr.relayContact(1,300)
+    
 
 # app.mount("/web/app", StaticFiles(directory="build/web",
 #           html=True), name="flutter")

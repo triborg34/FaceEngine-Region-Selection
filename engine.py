@@ -28,7 +28,7 @@ import torch.nn as nn
 from PIL import Image
 from torchvision.transforms import transforms
 import json
-from nrcpy import NrcDevice
+
 
 # --- Basic Setup ---
 logging.getLogger('torch').setLevel(logging.ERROR)
@@ -56,7 +56,9 @@ class CCtvMonitor:
         self.FRAME_DELAY = 1.0 / self.TARGET_FPS
         self.RETRY_LIMIT = 5
         self.RETRY_DELAY = 3
+        self.ip_relay,self.ip_port,self.relayN1,self.relayN2='','','',''
         self.score, self.padding, self.quality, self.hscore, self.simscore, self.port, self.isRegionMode, self.isRelay = self.loadConfig()
+        
 
         # Initialize models
         self.model = None
@@ -218,6 +220,12 @@ class CCtvMonitor:
         uri = 'http://127.0.0.1:8091/api/collections/setting/records'
         response = requests.get(uri)
         data = response.json().get('items')[0]
+        if data['isRfid']:
+            self.ip_relay,self.ip_port,self.relayN1,self.relayN2=data['rfidip'].strip(),data['rfidport'],data['rl1'],data['rl2']
+        if data['rl1']:
+            self.relayN1=1
+        if data['rl2']:
+            self.relayN2=2
         return float(data['score']), data['padding'], int(data['quality']), float(data['hscore']), float(data['simscore']), data['port'], data['isregion'], data['isRfid']
 
     def load_image_searcher_model(self):
@@ -457,7 +465,7 @@ class CCtvMonitor:
 
                         try:
                             insertToDb(name, frame.copy(), cropped_face.copy(), face_img.copy(
-                            ), det_score, track_id, gender, age, role, path, self.quality, region_data, self.isRelay,self.isRegionMode)  # TODO
+                            ), det_score, track_id, gender, age, role, path, self.quality, region_data, self.isRelay, self.isRegionMode,self.ip_relay,self.ip_port,self.relayN1,self.relayN2)  # TODO
                         except Exception as e:
                             logging.error(f"Error inserting to DB: {e}")
                 else:
@@ -527,7 +535,8 @@ class CCtvMonitor:
                     track_id = int(box.id[0].cpu().item())
 
                     # Crop human region
-                    human_crop = masked_frame[y1:y2, x1:x2] if self.isRegionMode else processed_frame[y1:y2, x1:x2]
+                    human_crop = masked_frame[y1:y2,
+                                              x1:x2] if self.isRegionMode else processed_frame[y1:y2, x1:x2]
                     if human_crop.size == 0:
                         continue
 
@@ -584,7 +593,7 @@ class CCtvMonitor:
                 display_frame = self.draw_regions_on_frame(
                     processed_frame, regions)
             else:
-                display_frame=processed_frame
+                display_frame = processed_frame
 
             try:
                 fps = 1.0 / (time.time() - start_time)
@@ -595,7 +604,7 @@ class CCtvMonitor:
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1
             )
 
-            return display_frame 
+            return display_frame
 
         except Exception as e:
             logging.error(f"Error processing frame: {e}")
@@ -654,7 +663,8 @@ class CCtvMonitor:
             if not hasattr(self, 'k'):
                 self.k = []
         else:
-            regions=None
+            regions = None
+
         def open_capture(source):
             cap = cv2.VideoCapture(source)
             if cap.isOpened():
@@ -714,7 +724,6 @@ class CCtvMonitor:
                     )
                 else:
                     # Store original dimensions
-                
 
                     if role == True:
                         frame = frame

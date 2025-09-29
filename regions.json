@@ -5,7 +5,7 @@
       "name": "r1",
       "description": "",
       "relay_ip": "192.168.1.115",
-      "relay_number": "1",
+      "relay_number": "2",
       "points": [
         [
           185.0,

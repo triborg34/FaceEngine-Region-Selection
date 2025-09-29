@@ -450,8 +450,8 @@ def relay1():
          ncr.relayContact(1,300)
     
 
-# app.mount("/web/app", StaticFiles(directory="build/web",
-#           html=True), name="flutter")
+app.mount("/web/app", StaticFiles(directory="build/web",
+          html=True), name="flutter")
 def updatePort():
     port=cctv_monitor.loadConfig()[3]
     with open('hostname.json','w') as file:
